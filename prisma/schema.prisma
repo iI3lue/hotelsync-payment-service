@@ -1,0 +1,52 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+/// Un cobro por reserva (PRD §5). La fila se reutiliza en los reintentos tras
+/// un rechazo: `attempts` cuenta los intentos y `status` refleja el último.
+model PaymentTransaction {
+  transaction_id String   @id @default(uuid()) @db.Uuid
+  // Sin FK entre servicios: UUID lógico hacia booking-service.
+  // Único => idempotencia: una reserva solo puede cobrarse una vez.
+  booking_id     String   @unique @db.Uuid
+  user_id        String?  @db.Uuid
+  hotel_id       String?  @db.Uuid // UUID lógico (property-service), para filtros de recepción
+  amount         Decimal  @db.Decimal(10, 2)
+  currency       String   @default("COP") @db.VarChar(10)
+  method         String   @db.VarChar(20) // CREDIT_CARD | CASH | TRANSFER | TERMINAL
+  // PROCESSING (cobro en curso, bloquea dobles cargos concurrentes)
+  // | COMPLETED | FAILED | REFUNDED
+  status         String   @db.VarChar(20)
+  channel        String   @db.VarChar(20) // WEB | FRONT_DESK
+  failure_reason String?  @db.VarChar(255)
+  // Datos no sensibles del medio de pago. Nunca se guarda el PAN ni el CVV.
+  auth_code      String?  @db.VarChar(40)
+  card_brand     String?  @db.VarChar(20)
+  card_last4     String?  @db.VarChar(4)
+  attempts       Int      @default(1)
+  recorded_by    String?  @db.Uuid // staff que registró un pago manual
+  received_by    String?  @db.VarChar(100) // nota libre de recepción (quién recibió)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([hotel_id, status])
+  @@map("payment_transactions")
+}
+
+model EventOutbox {
+  event_id   String    @id @default(uuid()) @db.Uuid
+  event_type String    @db.VarChar(50)
+  payload    Json      @db.Json
+  status     String    @default("pending") @db.VarChar(20)
+  attempts   Int       @default(0)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  sent_at    DateTime? @db.Timestamptz(6)
+
+  @@index([status, created_at])
+  @@map("event_outbox")
+}
