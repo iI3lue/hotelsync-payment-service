@@ -40,7 +40,7 @@ El reembolso es **event-driven**: un consumidor escucha `booking.cancelled`. Si 
 
 Tablas: `PaymentTransaction`, `EventOutbox`. `PaymentTransaction` guarda `refund_requested` y `refunded_at` para resolver cancelaciones durante el cobro.
 
-Migraciones en `prisma/migrations` (2). No requiere seed: las transacciones se crean por checkout o por pago manual.
+Migraciones en `prisma/migrations` (2). Incluye un **seed opcional** (`npm run seed`) que crea un cobro `COMPLETED` idempotente para un `booking_id` demo (override con `SEED_BOOKING_ID`, `SEED_HOTEL_ID` y `SEED_AMOUNT`); en operación las transacciones se crean por checkout o por pago manual.
 
 ## Comunicación
 
@@ -70,6 +70,7 @@ Copiar `.env.example` a `.env` y completar los valores.
 npm install
 cp .env.example .env
 npx prisma migrate deploy
+npm run seed                # opcional: cobro demo COMPLETED
 npm run dev                 # http://localhost:3010
 ```
 
@@ -96,6 +97,6 @@ pg_restore --clean --if-exists -d "$DATABASE_URL" payment_db.dump
 
 ```
 src/{routes,controllers,services,validators,middleware,lib}
-prisma/{schema.prisma,migrations}
+prisma/{schema.prisma,migrations,seed.ts}
 tests/
 ```
