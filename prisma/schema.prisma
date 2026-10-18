@@ -31,6 +31,10 @@ model PaymentTransaction {
   attempts       Int      @default(1)
   recorded_by    String?  @db.Uuid // staff que registró un pago manual
   received_by    String?  @db.VarChar(100) // nota libre de recepción (quién recibió)
+  // La reserva se canceló mientras el cobro estaba en curso: al terminar la
+  // autorización se revierte en vez de marcarse COMPLETED.
+  refund_requested Boolean @default(false)
+  refunded_at      DateTime? @db.Timestamptz(6)
   created_at     DateTime @default(now()) @db.Timestamptz(6)
   updated_at     DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 

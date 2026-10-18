@@ -42,6 +42,7 @@ export function toPaymentDto(tx: PaymentTransaction) {
     card_brand: tx.card_brand,
     card_last4: tx.card_last4,
     attempts: tx.attempts,
+    refunded_at: tx.refunded_at,
     created_at: tx.created_at,
     updated_at: tx.updated_at,
   };
@@ -189,6 +190,31 @@ async function completeTransaction(
   extra: { auth_code?: string | null; card_brand?: string | null; card_last4?: string | null } = {}
 ): Promise<PaymentTransaction> {
   return prisma.$transaction(async (db) => {
+    // La reserva pudo cancelarse mientras la pasarela autorizaba: en ese caso
+    // el cobro se revierte en vez de confirmarse.
+    const fresh = await db.paymentTransaction.findUniqueOrThrow({
+      where: { transaction_id: tx.transaction_id },
+    });
+
+    if (fresh.refund_requested) {
+      const refunded = await db.paymentTransaction.update({
+        where: { transaction_id: tx.transaction_id },
+        data: {
+          status: "REFUNDED",
+          refunded_at: new Date(),
+          failure_reason: "Reserva cancelada durante el cobro",
+          ...extra,
+        },
+      });
+      await enqueueOutboxEvent(db, "payment.refunded", {
+        booking_id: refunded.booking_id,
+        transaction_id: refunded.transaction_id,
+        amount: Number(refunded.amount),
+        currency: refunded.currency,
+      });
+      return refunded;
+    }
+
     const done = await db.paymentTransaction.update({
       where: { transaction_id: tx.transaction_id },
       data: { status: "COMPLETED", failure_reason: null, ...extra },
@@ -276,10 +302,65 @@ export async function getPaymentStatus(payer: Payer, bookingId: string) {
   return {
     booking_id: bookingId,
     booking_status: booking.status,
-    payment_status: tx?.status === "COMPLETED" ? "PAID" : booking.payment_status ?? "PENDING",
+    payment_status:
+      tx?.status === "COMPLETED"
+        ? "PAID"
+        : tx?.status === "REFUNDED"
+          ? "REFUNDED"
+          : booking.payment_status ?? "PENDING",
     payment_method_preference: booking.payment_method_preference ?? null,
     amount_due: Number(booking.total_amount),
     currency: currency(),
     transaction: tx ? toPaymentDto(tx) : null,
   };
 }
+
+export type RefundOutcome = "refunded" | "scheduled" | "ignored";
+
+/**
+ * Reembolso simulado al cancelarse una reserva (evento `booking.cancelled`).
+ * - COMPLETED: pasa a REFUNDED y encola `payment.refunded`.
+ * - PROCESSING: marca `refund_requested`; al terminar el cobro se revierte.
+ * - REFUNDED/FAILED/sin transacción: no-op idempotente.
+ */
+export async function refundBooking(bookingId: string): Promise<RefundOutcome> {
+  const existing = await prisma.paymentTransaction.findUnique({
+    where: { booking_id: bookingId },
+  });
+  if (!existing) return "ignored";
+  if (existing.status === "REFUNDED" || existing.status === "FAILED") return "ignored";
+
+  if (existing.status === "PROCESSING") {
+    await prisma.paymentTransaction.updateMany({
+      where: { booking_id: bookingId, status: "PROCESSING" },
+      data: { refund_requested: true },
+    });
+    return "scheduled";
+  }
+
+  return prisma.$transaction(async (db) => {
+    // updateMany condicional: una entrega duplicada del evento no reembolsa
+    // ni publica dos veces.
+    const claimed = await db.paymentTransaction.updateMany({
+      where: { booking_id: bookingId, status: "COMPLETED" },
+      data: {
+        status: "REFUNDED",
+        refunded_at: new Date(),
+        failure_reason: "Reserva cancelada",
+      },
+    });
+    if (claimed.count === 0) return "ignored";
+
+    const refunded = await db.paymentTransaction.findUniqueOrThrow({
+      where: { booking_id: bookingId },
+    });
+    await enqueueOutboxEvent(db, "payment.refunded", {
+      booking_id: refunded.booking_id,
+      transaction_id: refunded.transaction_id,
+      amount: Number(refunded.amount),
+      currency: refunded.currency,
+    });
+    return "refunded";
+  });
+}
+

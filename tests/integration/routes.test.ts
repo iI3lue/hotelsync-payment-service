@@ -66,6 +66,8 @@ const tx = (over: Record<string, unknown> = {}) => ({
   attempts: 1,
   created_at: new Date(),
   updated_at: new Date(),
+  refund_requested: false,
+  refunded_at: null,
   ...over,
 });
 
@@ -73,6 +75,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   db.$transaction.mockImplementation(async (fn: any) => fn(db));
   db.paymentTransaction.update.mockImplementation(async ({ data }: any) => tx(data));
+  db.paymentTransaction.findUniqueOrThrow.mockResolvedValue(tx());
 });
 
 describe("POST /v1/checkout", () => {

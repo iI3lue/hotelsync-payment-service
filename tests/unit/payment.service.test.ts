@@ -24,6 +24,7 @@ import {
   getPaymentStatus,
   processFrontDeskPayment,
   processWebPayment,
+  refundBooking,
 } from "../../src/services/payment.service";
 
 const db = prisma as any;
@@ -72,6 +73,8 @@ function tx(over: Record<string, unknown> = {}) {
     attempts: 1,
     recorded_by: null,
     received_by: null,
+    refund_requested: false,
+    refunded_at: null,
     created_at: new Date(),
     updated_at: new Date(),
     ...over,
@@ -82,6 +85,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   db.$transaction.mockImplementation(async (fn: any) => fn(db));
   db.paymentTransaction.update.mockImplementation(async ({ data }: any) => tx(data));
+  db.paymentTransaction.findUniqueOrThrow.mockResolvedValue(tx());
 });
 
 describe("processWebPayment (Flujo A)", () => {
@@ -263,5 +267,79 @@ describe("getPaymentStatus", () => {
     db.paymentTransaction.findUnique.mockResolvedValue(null);
     const status = await getPaymentStatus(guest, BOOKING_ID);
     expect(status).toMatchObject({ payment_status: "PENDING", amount_due: 1260, transaction: null });
+  });
+
+  it("expone REFUNDED tras el reembolso simulado", async () => {
+    asService.mockResolvedValue(booking({ status: "cancelled" }));
+    db.paymentTransaction.findUnique.mockResolvedValue(tx({ status: "REFUNDED" }));
+    const status = await getPaymentStatus(guest, BOOKING_ID);
+    expect(status.payment_status).toBe("REFUNDED");
+  });
+});
+
+describe("refundBooking (booking.cancelled)", () => {
+  it("COMPLETED: pasa a REFUNDED y encola payment.refunded", async () => {
+    db.paymentTransaction.findUnique.mockResolvedValue(tx({ status: "COMPLETED" }));
+    db.paymentTransaction.updateMany.mockResolvedValue({ count: 1 });
+    db.paymentTransaction.findUniqueOrThrow.mockResolvedValue(tx({ status: "REFUNDED", refunded_at: new Date() }));
+
+    await expect(refundBooking(BOOKING_ID)).resolves.toBe("refunded");
+    expect(db.paymentTransaction.updateMany).toHaveBeenCalledWith({
+      where: { booking_id: BOOKING_ID, status: "COMPLETED" },
+      data: expect.objectContaining({ status: "REFUNDED", refunded_at: expect.any(Date) }),
+    });
+    expect(db.eventOutbox.create).toHaveBeenCalledWith({
+      data: {
+        event_type: "payment.refunded",
+        payload: { booking_id: BOOKING_ID, transaction_id: TX_ID, amount: 1260, currency: "COP" },
+      },
+    });
+  });
+
+  it("PROCESSING: agenda la reversión para cuando termine el cobro", async () => {
+    db.paymentTransaction.findUnique.mockResolvedValue(tx({ status: "PROCESSING" }));
+    db.paymentTransaction.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(refundBooking(BOOKING_ID)).resolves.toBe("scheduled");
+    expect(db.paymentTransaction.updateMany).toHaveBeenCalledWith({
+      where: { booking_id: BOOKING_ID, status: "PROCESSING" },
+      data: { refund_requested: true },
+    });
+    expect(db.eventOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("idempotente: un cobro ya reembolsado o fallido se ignora", async () => {
+    db.paymentTransaction.findUnique.mockResolvedValue(tx({ status: "REFUNDED" }));
+    await expect(refundBooking(BOOKING_ID)).resolves.toBe("ignored");
+    db.paymentTransaction.findUnique.mockResolvedValue(tx({ status: "FAILED" }));
+    await expect(refundBooking(BOOKING_ID)).resolves.toBe("ignored");
+    expect(db.eventOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("sin transacción (reserva nunca cobrada): no-op", async () => {
+    db.paymentTransaction.findUnique.mockResolvedValue(null);
+    await expect(refundBooking(BOOKING_ID)).resolves.toBe("ignored");
+  });
+
+  it("entrega duplicada: el update condicional evita un segundo evento", async () => {
+    db.paymentTransaction.findUnique.mockResolvedValue(tx({ status: "COMPLETED" }));
+    db.paymentTransaction.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(refundBooking(BOOKING_ID)).resolves.toBe("ignored");
+    expect(db.eventOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("cobro en vuelo: al completarse se revierte y emite payment.refunded, no payment.completed", async () => {
+    asService.mockResolvedValue(booking());
+    db.paymentTransaction.findUnique.mockResolvedValue(null);
+    db.paymentTransaction.create.mockResolvedValue(tx());
+    db.paymentTransaction.findUniqueOrThrow.mockResolvedValue(tx({ refund_requested: true }));
+
+    const result = await processWebPayment(guest, BOOKING_ID, GOOD_CARD);
+
+    expect(result.transaction.status).toBe("REFUNDED");
+    const events = db.eventOutbox.create.mock.calls.map((c: any[]) => c[0].data.event_type);
+    expect(events).toContain("payment.refunded");
+    expect(events).not.toContain("payment.completed");
   });
 });

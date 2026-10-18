@@ -5,7 +5,7 @@ type OutboxTx = {
   eventOutbox: { create: (args: { data: { event_type: string; payload: object } }) => Promise<unknown> };
 };
 
-export type PaymentEventType = "payment.completed";
+export type PaymentEventType = "payment.completed" | "payment.refunded";
 
 /**
  * Encola un evento DENTRO de la transacción del llamador: el cobro y su

@@ -31,5 +31,14 @@ export const BookingIdParamSchema = z.object({
   bookingId: z.string().uuid("El bookingId debe ser un UUID válido"),
 });
 
+// Solo necesitamos el id: el resto del payload de booking.cancelled es
+// informativo. `passthrough` tolera campos nuevos del emisor.
+export const BookingCancelledEventSchema = z
+  .object({
+    booking_id: z.string().uuid(),
+  })
+  .passthrough();
+
+
 export type CheckoutInput = z.infer<typeof CheckoutSchema>;
 export type FrontDeskPaymentInput = z.infer<typeof FrontDeskPaymentSchema>;
