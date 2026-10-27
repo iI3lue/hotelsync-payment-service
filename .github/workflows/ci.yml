@@ -21,59 +21,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-test-build:
-    name: Lint, test and build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: payment_db
-          POSTGRES_USER: hotelsync
-          POSTGRES_PASSWORD: hotelsync_dev
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U hotelsync -d payment_db"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      DATABASE_URL: postgresql://hotelsync:hotelsync_dev@localhost:5432/payment_db
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-
-      - name: Apply database migrations
-        run: npx prisma migrate deploy
-
-      - name: Type-check
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
-
-      - name: Run tests
-        run: npm test -- --ci --runInBand
-
-      - name: Controlled failure (workflow_dispatch only)
-        if: ${{ inputs.fail_on_purpose == true }}
-        run: |
-          echo "Controlled failure requested: the pipeline must turn red."
-          exit 1
+  ci:
+    uses: iI3lue/hotelsync-loyalty-service/.github/workflows/node-service-ci.yml@ci-v1
+    with:
+      service_name: payment-service
+      db_name: payment_db
+      fail_on_purpose: ${{ github.event_name == 'workflow_dispatch' && inputs.fail_on_purpose || false }}
+    secrets:
+      CI_POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}

@@ -1,10 +1,16 @@
 # HotelSync — Payment Service
 
+[![CI](https://github.com/iI3lue/hotelsync-payment-service/actions/workflows/ci.yml/badge.svg)](https://github.com/iI3lue/hotelsync-payment-service/actions/workflows/ci.yml)
+
 Microservicio de pagos simulados de HotelSync: checkout del huésped, cobro manual en recepción, emisión de `payment.completed` y reembolso simulado cuando se cancela una reserva (`payment.refunded`).
 
 - **Producción:** https://hotelsync-payment-service.onrender.com
 - **Puerto local:** 3010
 - **Base de datos:** `payment_db` (PostgreSQL 16)
+
+## CI reutilizable
+
+El pipeline se consume desde `iI3lue/hotelsync-loyalty-service/.github/workflows/node-service-ci.yml@ci-v1`. El caller solo declara `service_name`, `db_name` y `fail_on_purpose`; la contraseña de PostgreSQL viaja como el secreto `CI_POSTGRES_PASSWORD` y no se guarda en el repositorio.
 
 ## Responsabilidad
 
