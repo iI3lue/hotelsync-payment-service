@@ -1,3 +1,4 @@
+import { gatewayHeaders } from "../middleware/gateway";
 import { AppError } from "../middleware/error-handler";
 
 /** Subconjunto de la reserva que payment-service necesita (booking-service es la fuente de verdad). */
@@ -20,7 +21,7 @@ function baseUrl(): string {
 async function getBooking(bookingId: string, headers: Record<string, string>): Promise<Response> {
   try {
     return await fetch(`${baseUrl()}/bookings/${encodeURIComponent(bookingId)}`, {
-      headers,
+      headers: { ...gatewayHeaders(), ...headers },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
