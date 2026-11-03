@@ -1,4 +1,5 @@
 import express from "express";
+import { requireGateway } from "./middleware/gateway";
 import { errorHandler } from "./middleware/error-handler";
 import { checkoutRouter } from "./routes/checkout";
 import { adminRouter } from "./routes/admin";
@@ -6,6 +7,7 @@ import { adminRouter } from "./routes/admin";
 export function createApp() {
   const app = express();
   app.disable("x-powered-by");
+  app.use(requireGateway);
   app.use(express.json({ limit: "16kb" }));
 
   app.get("/health", (_req, res) => {
