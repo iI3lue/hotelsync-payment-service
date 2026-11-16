@@ -11,12 +11,40 @@ export class AppError extends Error {
   }
 }
 
+// Errores del cliente que express/body-parser marcan con `type`/`statusCode`.
+type HttpLikeError = Error & {
+  statusCode?: number;
+  status?: number;
+  expose?: boolean;
+  type?: string;
+};
+
 export function errorHandler(
-  err: Error & { type?: string; status?: number },
+  err: Error,
   _req: Request,
   res: Response,
   _next: NextFunction
 ): void {
+  const httpErr = err as HttpLikeError;
+
+  if (httpErr.type === "entity.parse.failed") {
+    res.status(400).json({
+      error: "BadRequest",
+      message: "Cuerpo JSON inválido",
+      statusCode: 400,
+    });
+    return;
+  }
+
+  if (httpErr.type === "entity.too.large") {
+    res.status(413).json({
+      error: "PayloadTooLarge",
+      message: "Cuerpo de la petición demasiado grande",
+      statusCode: 413,
+    });
+    return;
+  }
+
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
       error: err.error,
@@ -25,12 +53,11 @@ export function errorHandler(
     });
     return;
   }
-  // JSON mal formado o body demasiado grande (body-parser).
-  if (err.type === "entity.parse.failed" || err.type === "entity.too.large") {
-    const status = err.type === "entity.too.large" ? 413 : 400;
-    res.status(status).json({ error: "Bad Request", message: "Cuerpo de la solicitud inválido", statusCode: status });
-    return;
-  }
+
   console.error("Unhandled error:", err);
-  res.status(500).json({ error: "Internal Server Error", message: "An unexpected error occurred", statusCode: 500 });
+  res.status(500).json({
+    error: "Internal Server Error",
+    message: "An unexpected error occurred",
+    statusCode: 500,
+  });
 }

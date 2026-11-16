@@ -35,10 +35,11 @@ export async function connect(): Promise<ConfirmChannel> {
         await channel.assertExchange(EXCHANGE, "topic", { durable: true });
         confirmChannel = channel;
         return channel;
-      } catch {
+      } catch (error) {
         attempt += 1;
         const delay = Math.min(RETRY_BASE_MS * 2 ** (attempt - 1), RETRY_MAX_MS);
-        console.warn(`[broker] RabbitMQ no disponible (intento ${attempt}), reintento en ${delay}ms`);
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[broker] RabbitMQ no disponible (intento ${attempt}): ${reason} — reintento en ${delay}ms`);
         await new Promise((res) => setTimeout(res, delay));
       }
     }
@@ -58,4 +59,9 @@ export async function publish(routingKey: string, payload: unknown): Promise<voi
       (err) => (err ? reject(err) : resolve())
     );
   });
+}
+
+/** true si hay un canal confirmado abierto (lo usa la metrica de salud). */
+export function isConnected(): boolean {
+  return confirmChannel !== null;
 }

@@ -2,6 +2,9 @@ import { createApp } from "./app";
 import { getJwtSecret } from "./lib/tokens";
 import { startOutboxDispatcher } from "./lib/outbox";
 import { startRefundConsumer } from "./lib/refund-consumer";
+import { assertProductionSecrets } from "./lib/security";
+
+assertProductionSecrets();
 
 // Falla al arrancar (no en la primera request) si el secreto no está:
 // un AUTH_JWT_SECRET distinto al de user-service da 401 en todo.

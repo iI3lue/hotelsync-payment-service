@@ -3,10 +3,16 @@ import { requireGateway } from "./middleware/gateway";
 import { errorHandler } from "./middleware/error-handler";
 import { checkoutRouter } from "./routes/checkout";
 import { adminRouter } from "./routes/admin";
+import { httpMetrics, metricsHandler } from "./lib/metrics";
+import { metricsGuard, securityHeaders } from "./lib/security";
 
 export function createApp() {
   const app = express();
   app.disable("x-powered-by");
+  app.set("trust proxy", 1);
+  app.use(securityHeaders);
+  app.use(httpMetrics);
+  app.get("/metrics", metricsGuard(), metricsHandler);
   app.use(requireGateway);
   app.use(express.json({ limit: "16kb" }));
 
